@@ -1,54 +1,87 @@
-const { GoogleSpreadsheet } = require('google-spreadsheet');
-const credenciais = require('./credentials.json');
-const arquivo = require('./arquivo.json');
-const {JWT} = require('google-auth-library');
-const punycode = require('punycode/');
+import { GoogleSpreadsheet } from 'google-spreadsheet';
+import { readFileSync } from 'fs';
+import { JWT } from 'google-auth-library';
 
+const credenciais = JSON.parse(readFileSync('./credentials.json', 'utf8'));
+const arquivo = JSON.parse(readFileSync('./arquivo.json', 'utf8'));
 
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 
-function User(nome, idade, email){
-    this.nome = nome;
-    this.idade = idade;
-    this.email = email; 
-}
+const jwt = new JWT({
+    email: credenciais.client_email,
+    key: credenciais.private_key,
+    scopes: SCOPES
+});
 
 async function GetDoc() {
-    const doc = new GoogleSpreadsheet(arquivo.id, JWT);
+    const doc = new GoogleSpreadsheet(arquivo.id, jwt);
     await doc.loadInfo();
     return doc;
 }
 
 async function ReadWorkSheet() {
     const sheet = (await GetDoc()).sheetsByIndex[0];
+    await sheet.loadHeaderRow();
+    if (sheet.headerValues.length === 0) {
+        throw new Error('No values in the header row - fill the first row with header values before trying to interact with rows');
+    }
     const rows = await sheet.getRows();
-    let users =  rows.map(row => {
-        return row.toObject()
-    })
-    return users
+    let users = rows.map(row => {
+        return row.toObject();
+    });
+    return users;
 }
 
 async function AddUser(data = {}) {
-    const response = await fetch("https://apigenerator.dronahq.com/api/l9GGxGRI/users", {
-        method: "POST",
+    const response = await fetch('https://apigenerator.dronahq.com/api/hrzwOqdt/users', {
+        method: 'POST',
         headers: {
-            "Content-type": "application/json",
+            'Content-Type': 'application/json'
         },
-        body: JSON.stringify(data),
+        body: JSON.stringify(data)
     });
     return response.json();
 }
 
-async function TrackData() {
-    let data = await ReadWorkSheet();
-    data.map(async (user) => {
-        let response = await AddUser(user)
-        console.log(response)
-    })
-    return console.log("Dados copiados com sucesso")
+async function AddRowToSheet(data) {
+    const sheet = (await GetDoc()).sheetsByIndex[0];
+    await sheet.addRow(data);
+    console.log('Linha adicionada com sucesso!');
 }
 
-(async () => {
-    const newUser = new User("João Pedro", 21, "jp.garbeline@gmail.com");
-    await AddUser(newUser);
-})();
+async function TrackData() {
+    try {
+        const users = await ReadWorkSheet();
+        for (const user of users) {
+            await AddUser(user);
+            await AddRowToSheet(user);
+        }
+        console.log('Dados enviados com sucesso!');
+    } catch (error) {
+        console.error('Error:', error.message);
+    }
+}
+
+async function AddUserToSheet(user) {
+    try {
+        const sheet = (await GetDoc()).sheetsByIndex[0];
+        await sheet.loadHeaderRow();
+        if (sheet.headerValues.length === 0) {
+            await sheet.setHeaderRow(Object.keys(user));
+        }
+        await AddRowToSheet(user);
+        console.log('Usuário adicionado com sucesso!');
+    } catch (error) {
+        console.error('Error:', error.message);
+    }
+}
+
+const newUser = {
+    nome: 'João',
+    email: 'joao@example.com',
+    idade: 30
+};
+
+AddUserToSheet(newUser);
+
+TrackData();
